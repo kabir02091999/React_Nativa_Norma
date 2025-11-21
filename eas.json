@@ -9,7 +9,10 @@
       "distribution": "internal"
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk" 
+      }
     },
     "production": {
       "autoIncrement": true
@@ -19,3 +22,10 @@
     "production": {}
   }
 }
+/* ojo "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk" 
+      }
+    }
+      ya que eso ayuda hacer apk sin esot me crea un archivo .aab esto me sirve solo para playstor */
