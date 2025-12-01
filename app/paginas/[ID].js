@@ -1,15 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Alert, ScrollView } from 'react-native';
-import { useLocalSearchParams } from 'expo-router'; // 👈 Hook para obtener los parámetros de la URL
+import { View, Text, StyleSheet, ActivityIndicator, Alert, ScrollView, TouchableOpacity, Linking } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
 import { fetchLocalById } from '../../utils/db';
-
-import MapView, { Marker } from 'react-native-maps';
 
 function LocalDetail() {
     const { ID } = useLocalSearchParams();
     const [local, setLocal] = useState(null);
-    const [isLoading, setIsLoading] = useState(true); 
-    console.log("LocalDetail montado con ID:", ID);
+    const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         const loadLocal = async () => {
@@ -17,12 +14,9 @@ function LocalDetail() {
                 setIsLoading(false);
                 return;
             }
-            //console.log("LocalDetail montado con ID:", ID);
             try {
-                // CAMBIAR GetLOcalById por fetchLocalById
                 const data = await fetchLocalById(ID);
                 setLocal(data);
-                //console.log("Detalle cargado:  ", data);
             } catch (error) {
                 console.error("Error al cargar detalle:", error);
                 Alert.alert("Error", "No se pudo cargar el detalle del local.");
@@ -30,9 +24,21 @@ function LocalDetail() {
                 setIsLoading(false);
             }
         };
-
         loadLocal();
     }, [ID]);
+
+    // Función para abrir Google Maps
+    const abrirGoogleMaps = () => {
+        if (!local) return;
+        
+        // Crea el link para Google Maps
+        const url = `https://www.google.com/maps/search/?api=1&query=${local.lat},${local.lon}`;
+        
+        Linking.openURL(url).catch(err => {
+            Alert.alert('Error', 'No se pudo abrir Google Maps');
+        });
+    };
+
     if (isLoading) {
         return (
             <View style={styles.centerContainer}>
@@ -50,7 +56,6 @@ function LocalDetail() {
         );
     }
 
-    // 3. Mostrar la información del local
     return (
         <ScrollView style={styles.container}>
             <Text style={styles.title}>{local.nombre_local}</Text>
@@ -75,36 +80,27 @@ function LocalDetail() {
 
             <View style={styles.detailCard}>
                 <Text style={styles.label}>Latitud:</Text>
-                <Text style={styles.value}>{local.lat.toFixed(6)}</Text>
+                <Text style={styles.value}>{local.lat?.toFixed(6)}</Text>
             </View>
 
             <View style={styles.detailCard}>
                 <Text style={styles.label}>Longitud:</Text>
-                <Text style={styles.value}>{local.lon.toFixed(6)}</Text>
+                <Text style={styles.value}>{local.lon?.toFixed(6)}</Text>
             </View>
 
-            {/* Aquí podrías agregar el MapView con el marcador */}
-            <Text style={styles.subtitle}>Ubicación en el Mapa</Text>
-            <MapView
-                style={{ width: '100%', height: 300, marginBottom: 20 }}
-                initialRegion={{
-                    latitude: local.lat,
-                    longitude: local.lon,
-                    latitudeDelta: 0.01,
-                    longitudeDelta: 0.01,
-                }}
-            >
-                <Marker
-                    coordinate={{ latitude: local.lat, longitude: local.lon }}
-                    title={local.nombre_local}
-                    description={local.ubicacion_texto}
-                />
-            </MapView>
+            <Text style={styles.subtitle}>Ver Ubicación</Text>
+            
+            {/* BOTÓN PARA ABRIR GOOGLE MAPS */}
+            <TouchableOpacity style={styles.mapButton} onPress={abrirGoogleMaps}>
+                <Text style={styles.mapButtonText}>📍 ABRIR EN GOOGLE MAPS</Text>
+                <Text style={styles.mapButtonSubtext}>
+                    Se abrirá la aplicación de Google Maps en tu celular
+                </Text>
+            </TouchableOpacity>
+            
         </ScrollView>
     );
 }
-
-// ... (Estilos del componente de detalle) ...
 
 const styles = StyleSheet.create({
     container: {
@@ -161,6 +157,49 @@ const styles = StyleSheet.create({
     errorText: {
         fontSize: 18,
         color: 'red'
+    },
+    mapButton: {
+        backgroundColor: '#4285F4', // Color de Google
+        padding: 20,
+        borderRadius: 12,
+        marginBottom: 20,
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    mapButtonText: {
+        color: 'white',
+        fontSize: 18,
+        fontWeight: 'bold',
+        textAlign: 'center',
+    },
+    mapButtonSubtext: {
+        color: 'white',
+        fontSize: 12,
+        marginTop: 5,
+        textAlign: 'center',
+        opacity: 0.8,
+    },
+    instructions: {
+        backgroundColor: '#FFF3CD',
+        padding: 15,
+        borderRadius: 8,
+        borderLeftWidth: 4,
+        borderLeftColor: '#FFC107',
+    },
+    instructionsTitle: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: '#856404',
+        marginBottom: 5,
+    },
+    instructionsText: {
+        fontSize: 14,
+        color: '#856404',
+        lineHeight: 20,
     }
 });
 
