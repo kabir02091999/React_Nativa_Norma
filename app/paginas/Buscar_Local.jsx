@@ -72,7 +72,7 @@ function BuscarLocal() {
         <View style={styles.container}>
             <Text style={styles.title}>Buscar Locales</Text>
             
-            {/* ... (El resto del componente de búsqueda y FlatList sigue igual) ... */}
+            
             
             <TextInput
                 style={styles.input}
@@ -108,9 +108,7 @@ function BuscarLocal() {
     );
 }
 
-// ----------------------------------------------------
-// ## Estilos (Styles)
-// ----------------------------------------------------
+
 
 const styles = StyleSheet.create({
     container: {
@@ -193,3 +191,5 @@ const styles = StyleSheet.create({
 });
 
 export default BuscarLocal;
+
+

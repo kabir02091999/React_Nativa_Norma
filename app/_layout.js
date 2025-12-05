@@ -42,8 +42,8 @@ export default function Layout() {
   );
 } */
 
-import React, { useEffect, useState } from 'react'; 
-import { View , Text, ActivityIndicator, Alert, StyleSheet } from 'react-native'; 
+import React, { useEffect, useState } from 'react';
+import { View, Text, ActivityIndicator, Alert, StyleSheet } from 'react-native';
 import { Drawer } from 'expo-router/drawer';
 
 // 1. Importar la función de inicialización de la BD
@@ -56,7 +56,7 @@ export default function Layout() {
   // 2. Inicialización de la BD al montar el componente
   useEffect(() => {
     // La inicialización se corre UNA SOLA VEZ al inicio.
-    initDatabase() 
+    initDatabase()
       .then(() => {
         setIsDbReady(true);
         console.log("Base de datos inicializada con éxito.");
@@ -65,7 +65,7 @@ export default function Layout() {
         console.error("Error al inicializar la BD:", error);
         setErrorDb(error.message || "Error desconocido al preparar la base de datos.");
       });
-  }, []); 
+  }, []);
 
   // 3. Manejo de estados y errores
 
@@ -94,45 +94,65 @@ export default function Layout() {
   return (
     <Drawer>
       <Drawer.Screen
-        name="index" 
+        name="index"
         options={{
           drawerLabel: 'Home',
           title: 'Home',
         }}
       />
       <Drawer.Screen
-        name="paginas/NewCliente" 
+        name="paginas/NewCliente"
         options={{
           drawerLabel: 'new client',
           title: 'New Cliente',
         }}
       />
       <Drawer.Screen
-        name="paginas/Buscar_Local" 
+        name="paginas/Buscar_Local"
         options={{
           drawerLabel: 'buscar local',
           title: 'Buscar Local',
         }}
       />
       <Drawer.Screen
-        name="index2" 
+        name="index2"
         options={{
-          drawerLabel: 'index2',
-          title: 'Index2',
+          drawerLabel: 'Buscar Negocios google maps',
+          title: 'Buscar Negocios',
         }}
       />
-      <Drawer.Screen
-        name="paginas/crub" 
-        options={{
-          drawerLabel: 'crub',
-          title: 'Crub',
-        }}
-      />
-      <Drawer.Screen
+      {/* <Drawer.Screen
         name="paginas/[ID]" 
         options={{
           drawerLabel: 'Local',
           title: 'Local',
+        }}
+      /> */}
+
+      <Drawer.Screen
+        name="paginas/[ID]"
+        options={{
+          title: 'Detalle del Local', // Título que se ve en la cabecera
+
+          // 🚨 CLAVE: OCULTA LA PANTALLA DEL MENÚ DEL DRAWER
+          drawerItemStyle: {
+            height: 0,
+            overflow: 'hidden'
+          },
+          // También puedes usar: drawerItemStyle: { display: 'none' }
+        }}
+      />
+      <Drawer.Screen
+        name="paginas/NegociosCercanos"
+        options={{
+          drawerLabel: 'Oculto', // oculatar cosas que no se va a ver, no se verá.
+          title: 'Búsqueda de Negocios google maps',
+
+          // OCULTAr EL ÍTEM DE LA LISTA
+          drawerItemStyle: {
+            height: 0,
+            overflow: 'hidden'
+          },
         }}
       />
     </Drawer>
@@ -140,31 +160,31 @@ export default function Layout() {
 }
 
 const styles = StyleSheet.create({
-    centerContainer: {
-        flex: 1, 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        backgroundColor: '#f5f5f5'
-    },
-    loadingText: {
-        marginTop: 10,
-        fontSize: 16,
-        color: '#666'
-    },
-    errorTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: 'red',
-        marginBottom: 8
-    },
-    errorText: {
-        textAlign: 'center',
-        paddingHorizontal: 20,
-        color: '#333'
-    },
-    errorDetail: {
-        marginTop: 10,
-        fontSize: 14,
-        color: '#888'
-    }
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5'
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#666'
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: 'red',
+    marginBottom: 8
+  },
+  errorText: {
+    textAlign: 'center',
+    paddingHorizontal: 20,
+    color: '#333'
+  },
+  errorDetail: {
+    marginTop: 10,
+    fontSize: 14,
+    color: '#888'
+  }
 });

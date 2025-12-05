@@ -8,6 +8,8 @@ export const initDatabase = async () => {
         db = await SQLite.openDatabaseAsync('db.db'); 
         
         await db.execAsync(`
+
+            
             CREATE TABLE IF NOT EXISTS locales (
                 id INTEGER PRIMARY KEY NOT NULL, 
                 ci_rif TEXT NOT NULL UNIQUE, 
@@ -17,9 +19,38 @@ export const initDatabase = async () => {
                 lat REAL NOT NULL, 
                 lon REAL NOT NULL
             );
+            
+            CREATE TABLE IF NOT EXISTS facturas (
+                id INTEGER PRIMARY KEY NOT NULL, 
+                
+                local_id INTEGER NOT NULL, 
+                
+                fecha_factura TEXT NOT NULL, 
+                total_neto REAL,
+                total_bruto REAL,
+                
+                FOREIGN KEY (local_id) REFERENCES locales(id)
+                    ON DELETE CASCADE 
+                    ON UPDATE CASCADE
+            );
+
+
+            CREATE TABLE IF NOT EXISTS facturacion_productos (
+                id INTEGER PRIMARY KEY NOT NULL, 
+
+                factura_id INTEGER NOT NULL, 
+                
+                producto_nombre TEXT NOT NULL,
+                cantidad INTEGER NOT NULL,
+                precio_unitario REAL,
+
+                FOREIGN KEY (factura_id) REFERENCES facturas(id)
+                    ON DELETE CASCADE 
+                    ON UPDATE CASCADE
+            );
         `);
         
-        console.log("Base de datos y tabla 'locales' inicializadas con éxito.");
+        console.log("Base de datos, tabla 'locales', 'facturas' y 'facturacion_productos' inicializadas con éxito.");
         return true;
         
     } catch (error) {
