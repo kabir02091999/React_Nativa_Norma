@@ -1,206 +1,175 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Alert, ScrollView, TouchableOpacity, Linking } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
-import { fetchLocalById } from '../../utils/db';
+import React, { useEffect, useState, useCallback } from 'react';
+import { 
+    View, 
+    Text, 
+    StyleSheet, 
+    ActivityIndicator, 
+    Alert, 
+    ScrollView, 
+    TouchableOpacity, 
+    Linking 
+} from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+               
+import { getUbicacionClienteById, GetFacturasPorLocal } from '../../app/api/api.js'; 
 
 function LocalDetail() {
     const { ID } = useLocalSearchParams();
+    const router = useRouter();
     const [local, setLocal] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        const loadLocal = async () => {
-            if (!ID) {
-                setIsLoading(false);
-                return;
-            }
+        const loadData = async () => {
+            if (!ID) return;
             try {
-                const data = await fetchLocalById(ID);
-                setLocal(data);
+                setIsLoading(true);
+                
+                const data = await getUbicacionClienteById(ID);
+                //console.log(data)
+                if (data) {
+                    setLocal(data);
+                } else {
+                    Alert.alert("Aviso", "No se encontró información detallada de este cliente.");
+                }
+
             } catch (error) {
                 console.error("Error al cargar detalle:", error);
-                Alert.alert("Error", "No se pudo cargar el detalle del local.");
+                Alert.alert("Error", "Problema de conexión con el servidor.");
             } finally {
                 setIsLoading(false);
             }
         };
-        loadLocal();
+
+        
+        loadData();
     }, [ID]);
 
-    // Función para abrir Google Maps
     const abrirGoogleMaps = () => {
-        if (!local) return;
+        // Validamos con los nombres de tu JSON: Lat y Lon
+        if (!local?.Lat || !local?.Lon) {
+            Alert.alert("Ups", "Este cliente no tiene coordenadas GPS registradas.");
+            return;
+        }
         
-        // Crea el link para Google Maps
-        const url = `https://www.google.com/maps/search/?api=1&query=${local.lat},${local.lon}`;
-        
-        Linking.openURL(url).catch(err => {
-            Alert.alert('Error', 'No se pudo abrir Google Maps');
+        const url = `https://www.google.com/maps/search/?api=1&query=${local.Lat},${local.Lon}`;
+        Linking.openURL(url).catch(() => {
+            Alert.alert("Error", "No se pudo abrir Google Maps");
         });
     };
 
-    if (isLoading) {
-        return (
-            <View style={styles.centerContainer}>
-                <ActivityIndicator size="large" color="#007AFF" />
-                <Text style={styles.loadingText}>Cargando detalle...</Text>
-            </View>
-        );
-    }
+    if (isLoading) return (
+        <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color="#007AFF" />
+            <Text style={{marginTop: 10}}>Cargando perfil del cliente...</Text>
+        </View>
+    );
 
-    if (!local) {
-        return (
-            <View style={styles.centerContainer}>
-                <Text style={styles.errorText}>Local no encontrado.</Text>
-            </View>
-        );
-    }
+    if (!local) return (
+        <View style={styles.centerContainer}>
+            <Text>No se pudo cargar la información.</Text>
+        </View>
+    );
 
     return (
         <ScrollView style={styles.container}>
-            <Text style={styles.title}>{local.nombre_local}</Text>
-            <Text style={styles.subtitle}>Detalles del Registro</Text>
-
-            <View style={styles.detailCard}>
-                <Text style={styles.label}>C.I. / RIF:</Text>
-                <Text style={styles.value}>{local.ci_rif}</Text>
+            {/* TÍTULO PRINCIPAL */}
+            <View style={styles.header}>
+                <Text style={styles.title}>{local.nombre}</Text>
+                <Text style={styles.idText}>ID Cliente: #{local.ID_Clientes_Status}</Text>
             </View>
-
-            <View style={styles.detailCard}>
-                <Text style={styles.label}>Tipo de Local:</Text>
-                <Text style={styles.value}>{local.tipo_local}</Text>
-            </View>
-
-            <View style={styles.detailCard}>
-                <Text style={styles.label}>Referencia de Ubicación:</Text>
-                <Text style={styles.value}>{local.ubicacion_texto}</Text>
-            </View>
-
-            <Text style={styles.subtitle}>Coordenadas GPS</Text>
-
-            <View style={styles.detailCard}>
-                <Text style={styles.label}>Latitud:</Text>
-                <Text style={styles.value}>{local.lat?.toFixed(6)}</Text>
-            </View>
-
-            <View style={styles.detailCard}>
-                <Text style={styles.label}>Longitud:</Text>
-                <Text style={styles.value}>{local.lon?.toFixed(6)}</Text>
-            </View>
-
-            <Text style={styles.subtitle}>Ver Ubicación</Text>
             
-            {/* BOTÓN PARA ABRIR GOOGLE MAPS */}
-            <TouchableOpacity style={styles.mapButton} onPress={abrirGoogleMaps}>
-                <Text style={styles.mapButtonText}>📍 ABRIR EN GOOGLE MAPS</Text>
-                <Text style={styles.mapButtonSubtext}>
-                    Se abrirá la aplicación de Google Maps en tu celular
-                </Text>
+            <View style={styles.infoSection}>
+                <Text style={styles.subtitle}>Datos del Cliente</Text>
+                
+                <View style={styles.card}>
+                    <View style={styles.row}>
+                        <Text style={styles.label}>RIF:</Text>
+                        <Text style={styles.value}>{local.rif || 'No registrado'}</Text>
+                    </View>
+                    <View style={styles.divider} />
+                    <View style={styles.row}>
+                        <Text style={styles.label}>Tipo:</Text>
+                        <Text style={styles.value}>{local.tipo || 'No registrado'}</Text>
+                    </View>
+                    <View style={styles.divider} />
+                    <View style={styles.row}>
+                        <Text style={styles.label}>Teléfono:</Text>
+                        <Text style={styles.value}>{local.telefono || 'Sin teléfono'}</Text>
+                    </View>
+                    <View style={styles.divider} />
+                    <View style={styles.row}>
+                        <Text style={styles.label}>Estatus:</Text>
+                        <Text style={[styles.value, { color: local.status === 1 ? '#28a745' : '#dc3545', fontWeight: 'bold' }]}>
+                            {local.status === 1 ? 'Cliente' : 'Cliente Potencial'}
+                        </Text>
+                    </View>
+                </View>
+
+                <Text style={styles.subtitle}>Ubicación Geográfica</Text>
+                <View style={[styles.card, { borderLeftColor: '#4285F4', borderLeftWidth: 5 }]}>
+                    <Text style={styles.ubicacionClave}>{local.Ubicacion_Clave}</Text>
+                    <Text style={styles.direccionTexto}>{local.Ubicacion}</Text>
+                    <Text style={styles.coordenadas}>GPS: {local.Lat}, {local.Lon}</Text>
+                </View>
+            </View>
+
+            {/* BOTONES */}
+            <TouchableOpacity style={styles.btnMap} onPress={abrirGoogleMaps}>
+                <Text style={styles.btnText}>📍 ABRIR EN GOOGLE MAPS</Text>
             </TouchableOpacity>
-            
+
+            <TouchableOpacity 
+                style={styles.btnFactura} 
+                onPress={() => router.push(`/paginas/facturaCliente/${local.ID_Clientes_Status}`)}
+            >
+                <Text style={styles.btnText}>🛒 GENERAR PEDIDO / FACTURA</Text>
+            </TouchableOpacity>
+
+            <View style={{ height: 40 }} />
         </ScrollView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        padding: 20,
-        backgroundColor: '#f9f9f9',
-    },
-    centerContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center'
-    },
-    title: {
-        fontSize: 28,
-        fontWeight: 'bold',
-        marginBottom: 10,
-        color: '#007AFF',
-    },
-    subtitle: {
-        fontSize: 20,
-        fontWeight: '600',
-        marginTop: 20,
-        marginBottom: 10,
-        paddingBottom: 5,
-        borderBottomWidth: 1,
-        borderBottomColor: '#eee',
-    },
-    detailCard: {
-        backgroundColor: '#ffffff',
-        padding: 15,
-        borderRadius: 8,
-        marginBottom: 10,
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderLeftWidth: 4,
-        borderLeftColor: '#4CD964',
-    },
-    label: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#555',
-    },
-    value: {
-        fontSize: 16,
-        color: '#333',
-        maxWidth: '60%',
-        textAlign: 'right'
-    },
-    loadingText: {
-        marginTop: 10,
-        color: '#666'
-    },
-    errorText: {
-        fontSize: 18,
-        color: 'red'
-    },
-    mapButton: {
-        backgroundColor: '#4285F4', // Color de Google
-        padding: 20,
-        borderRadius: 12,
-        marginBottom: 20,
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
+    container: { flex: 1, backgroundColor: '#F4F6F8', padding: 15 },
+    centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    header: { marginBottom: 20, paddingHorizontal: 5 },
+    title: { fontSize: 22, fontWeight: 'bold', color: '#1A1A1A' },
+    idText: { fontSize: 14, color: '#666' },
+    infoSection: { marginBottom: 20 },
+    subtitle: { fontSize: 16, fontWeight: 'bold', color: '#555', marginBottom: 10, marginTop: 10 },
+    card: { 
+        backgroundColor: '#FFF', 
+        padding: 15, 
+        borderRadius: 12, 
+        elevation: 2, 
+        shadowColor: '#000', 
+        shadowOpacity: 0.1, 
         shadowRadius: 4,
-        elevation: 3,
+        marginBottom: 10 
     },
-    mapButtonText: {
-        color: 'white',
-        fontSize: 18,
-        fontWeight: 'bold',
-        textAlign: 'center',
+    row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 },
+    label: { fontSize: 15, color: '#888' },
+    value: { fontSize: 15, fontWeight: '500', color: '#333' },
+    divider: { height: 1, backgroundColor: '#EEE', width: '100%' },
+    ubicacionClave: { fontSize: 17, fontWeight: 'bold', color: '#4285F4', marginBottom: 5 },
+    direccionTexto: { fontSize: 14, color: '#444', lineHeight: 20 },
+    coordenadas: { fontSize: 12, color: '#999', marginTop: 10, fontStyle: 'italic' },
+    btnMap: { 
+        backgroundColor: '#4285F4', 
+        padding: 18, 
+        borderRadius: 12, 
+        alignItems: 'center', 
+        marginBottom: 12 
     },
-    mapButtonSubtext: {
-        color: 'white',
-        fontSize: 12,
-        marginTop: 5,
-        textAlign: 'center',
-        opacity: 0.8,
+    btnFactura: { 
+        backgroundColor: '#28a745', 
+        padding: 18, 
+        borderRadius: 12, 
+        alignItems: 'center' 
     },
-    instructions: {
-        backgroundColor: '#FFF3CD',
-        padding: 15,
-        borderRadius: 8,
-        borderLeftWidth: 4,
-        borderLeftColor: '#FFC107',
-    },
-    instructionsTitle: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#856404',
-        marginBottom: 5,
-    },
-    instructionsText: {
-        fontSize: 14,
-        color: '#856404',
-        lineHeight: 20,
-    }
+    btnText: { color: '#FFF', fontWeight: 'bold', fontSize: 15 }
 });
 
 export default LocalDetail;

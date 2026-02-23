@@ -1,49 +1,44 @@
 import React, { useState } from 'react';
-import { 
-    StyleSheet, 
-    Text, 
-    View, 
-    TextInput, 
-    FlatList, 
-    ActivityIndicator, 
+import {
+    StyleSheet,
+    Text,
+    View,
+    TextInput,
+    FlatList,
+    ActivityIndicator,
     Alert,
     TouchableOpacity
 } from 'react-native';
-import { useRouter } from 'expo-router'; // 👈 IMPORTAR useRouter
+import { useRouter } from 'expo-router';
 
-import { searchLocales } from '../../utils/db'; 
+import * as Location from 'expo-location';
+
+// Asegúrate de que esta ruta sea correcta e incluye la función de la API para la ruta
+import { searchLocales, postGenerarRuta } from '../api/api'; 
 
 function BuscarLocal() {
-    // Inicializar el router
-    const router = useRouter(); // 👈 Inicializar el router
+    const router = useRouter(); 
 
     const [searchText, setSearchText] = useState('');
     const [searchResults, setSearchResults] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
-    
-    // Función de navegación que usa el ID del local
+    const [isGenerating, setIsGenerating] = useState(false); // Estado para el botón de ruta
+
     const navigateToDetail = (ID) => {
-        // Navega a la ruta dinámica: /paginas/detalle/123
-        // Asumiendo que tu archivo de detalle se llama [localId].js o similar
         console.log("Navegando al detalle del local con ID:", ID);
-        router.push(`/paginas/${ID}`); // 👈 Usa router.push para navegar
+        router.push(`/paginas/${ID}`); 
     };
 
-    // Función central para manejar la lógica de búsqueda
     const handleSearch = async (text) => {
         setSearchText(text);
-        
         if (text.length === 0) {
             setSearchResults([]);
             return;
         }
-
         setIsLoading(true);
-
         try {
-            const results = await searchLocales(text); 
+            const results = await searchLocales(text);
             setSearchResults(results);
-            
         } catch (error) {
             console.error("Error al buscar locales:", error);
             Alert.alert("Error de Búsqueda", error.message || "No se pudo realizar la búsqueda.");
@@ -52,34 +47,92 @@ function BuscarLocal() {
             setIsLoading(false);
         }
     };
-    
+
+    // --- NUEVA FUNCIÓN PARA EL BOTÓN ---
+    const crearRutaOptima = async () => {
+    if (searchResults.length === 0) return;
+
+    setIsGenerating(true);
+    try {
+        const data = {
+            id: 1, 
+            ubicacion: searchText.trim(), // Limpia espacios
+            lat: 7.767, 
+            lon: -72.216
+        };
+
+        // 1. Llamamos a la API
+        const response = await postGenerarRuta(data); 
+
+        
+        if (response && response.ok) {
+            Alert.alert("¡Éxito!", "La ruta ha sido generada y guardada.");
+        } else {
+            // Aquí se mostrará "No se encontraron clientes" o "Ya tienes una ruta activa"
+            const serverMessage = response?.message || "Error 404: Ruta no encontrada en el servidor";
+            
+            if (serverMessage.includes("Ya tienes una ruta creada")) {
+                Alert.alert("Ruta Pendiente", serverMessage);
+            } else {
+                Alert.alert("Aviso", serverMessage);
+            }
+        }
+
+    } catch (error) {
+        // Solo errores de crash del JS del cliente
+        console.log("Error crítico en frontend:", error);
+        Alert.alert("Error", "Ocurrió un fallo en la aplicación.");
+    } finally {
+        setIsGenerating(false);
+    }
+};
+
     const renderLocalItem = ({ item }) => (
-        // Llama a la nueva función de navegación con el ID del ítem
-        <TouchableOpacity 
+        <TouchableOpacity
             style={styles.itemContainer}
-            onPress={() => navigateToDetail(item.id)} // 👈 Pasar el ID del local
+            onPress={() => navigateToDetail(item.ID_Clientes_Status)}
         >
             <Text style={styles.localName}>
-                {item.nombre_local} 
-                <Text style={styles.ciRifText}> ({item.ci_rif})</Text>
+                {item.nombre}
+                <Text style={styles.ciRifText}> ({item.rif || 'S/R'})</Text>
             </Text>
-            <Text style={styles.detailText}>Tipo: {item.tipo_local}</Text>
-            <Text style={styles.locationText}>Ubicación: {item.ubicacion_texto}</Text>
+            <Text style={styles.detailText}>Ubicacion: {item.Ubicacion_Clave}</Text>
+            <Text style={styles.locationText}>Dirección: {item.Ubicacion}</Text>
         </TouchableOpacity>
     );
 
     return (
         <View style={styles.container}>
-            <Text style={styles.title}>Buscar Locales</Text>
-            
-            
-            
+            <Text style={styles.title}>Buscar por zona</Text>
+
             <TextInput
                 style={styles.input}
                 placeholder="nombre ubicación..."
                 value={searchText}
-                onChangeText={handleSearch} 
+                onChangeText={handleSearch}
             />
+
+            {/* --- BOTÓN NUEVO: Solo se muestra si hay resultados --- */}
+            {searchResults.length > 0 && !isLoading && (
+    <View>
+        {/* Texto que indica la cantidad de negocios */}
+        <Text style={styles.countText}>
+            📍 Se encontraron <Text style={{fontWeight: 'bold'}}>{searchResults.length}</Text> negocios en esta zona
+        </Text>
+
+        <TouchableOpacity 
+            style={styles.btnRuta} 
+            onPress={crearRutaOptima}
+            disabled={isGenerating}
+        >
+            {isGenerating ? (
+                <ActivityIndicator color="#fff" />
+            ) : (
+                <Text style={styles.btnRutaText}>🗺️ GENERAR RUTA ÓPTIMA</Text>
+            )}
+        </TouchableOpacity>
+    </View>
+)}
 
             {isLoading && (
                 <View style={styles.loadingContainer}>
@@ -91,11 +144,11 @@ function BuscarLocal() {
             {!isLoading && (
                 <FlatList
                     data={searchResults}
-                    keyExtractor={(item) => item.id.toString()}
+                    keyExtractor={(item) => item.ID_Clientes_Status.toString()}
                     renderItem={renderLocalItem}
                     ListEmptyComponent={() => (
                         <Text style={styles.emptyText}>
-                            {searchText.length > 0 
+                            {searchText.length > 0
                                 ? "No se encontraron resultados para su búsqueda."
                                 : "Empiece a escribir para buscar locales registrados."
                             }
@@ -107,8 +160,6 @@ function BuscarLocal() {
         </View>
     );
 }
-
-
 
 const styles = StyleSheet.create({
     container: {
@@ -123,7 +174,16 @@ const styles = StyleSheet.create({
         marginBottom: 20,
         textAlign: 'center',
         color: '#333',
-    },
+    },countText: {
+    fontSize: 16,
+    color: '#444',
+    textAlign: 'center',
+    marginBottom: 10,
+    backgroundColor: '#e3f2fd', 
+    padding: 8,
+    borderRadius: 5,
+    overflow: 'hidden'
+},
     input: {
         height: 50,
         borderColor: '#007AFF',
@@ -133,6 +193,21 @@ const styles = StyleSheet.create({
         marginBottom: 15,
         backgroundColor: '#fff',
         fontSize: 16,
+    },
+    // --- ESTILO DEL BOTÓN NUEVO ---
+    btnRuta: {
+        backgroundColor: '#28a745',
+        padding: 15,
+        borderRadius: 8,
+        marginBottom: 15,
+        alignItems: 'center',
+        flexDirection: 'row',
+        justifyContent: 'center'
+    },
+    btnRutaText: {
+        color: '#fff',
+        fontWeight: 'bold',
+        fontSize: 16
     },
     loadingContainer: {
         flexDirection: 'row',
@@ -153,7 +228,7 @@ const styles = StyleSheet.create({
         borderRadius: 10,
         marginBottom: 10,
         borderLeftWidth: 4,
-        borderLeftColor: '#FF9500', // Color para diferenciar de la lista principal
+        borderLeftColor: '#FF9500', 
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.1,
@@ -189,7 +264,4 @@ const styles = StyleSheet.create({
         marginTop: 50,
     }
 });
-
 export default BuscarLocal;
-
-

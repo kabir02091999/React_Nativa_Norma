@@ -1,17 +1,17 @@
 {
   "expo": {
-    "name": "prueba-de-proyecto",
+    "name": " Bienvenido a Ecoinn",
     "slug": "normando",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/Logo.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "scheme": "kaabir",
+    "scheme": "kabir",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/Logo.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#007AFF"
     },
     "ios": {
       "supportsTablet": true,
@@ -22,12 +22,12 @@
     "android": {
       "config": {
         "googleMaps": {
-          "apiKey": "${API_KEY_GOOGLE}" 
+          "apiKey": "${API_KEY_GOOGLE}"
         }
       },
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#007AFF"
       },
       "edgeToEdgeEnabled": true,
       "permissions": [
@@ -65,7 +65,8 @@
             ]
           }
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "extra": {
       "router": {},

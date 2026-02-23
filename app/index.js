@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import React, { useState, useEffect, useCallback } from 'react'; 
+import React, { useState, useCallback } from 'react'; 
 import { 
     StyleSheet, 
     Text, 
@@ -7,153 +7,273 @@ import {
     FlatList, 
     ActivityIndicator, 
     Alert, 
-    Linking, // Importar Linking para abrir URLs
-    TouchableOpacity //Importar TouchableOpacity para hacer las tarjetas clickeables
+    TouchableOpacity,
+    Linking,
+    TextInput,
+    LayoutAnimation, 
+    Platform,
+    UIManager
 } from 'react-native';
-import { useFocusEffect } from 'expo-router'; 
+import { useFocusEffect, useRouter } from 'expo-router'; 
+import { fetchRutaVendedor, PostNuevaObservacion, DeleteRuta } from './api/api.js'; 
+import { Ionicons } from '@expo/vector-icons';
+import * as SecureStore from 'expo-secure-store';
 
-// Importar la función de lectura de la BD
-import { fetchLocales, clearLocal } from '../utils/db'; 
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
-export default function index() {
-  const [locales, setLocales] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const openMap = (lat, lon, nombre) => {
+export default function RutaDelDia() {
+    const router = useRouter(); 
+    const [clientesRuta, setClientesRuta] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isSending, setIsSending] = useState(false); 
+    const [expandedId, setExpandedId] = useState(null);
+    const [motivo, setMotivo] = useState("");
+    const [tipoReporte, setTipoReporte] = useState(""); // Para saber si es No Venta o No Visita
+    const [infoUsuario, setInfoUsuario] = useState(null);
 
-      const url = `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`;
-      
-      Linking.openURL(url).catch(err => {
-          console.error('Error al intentar abrir el mapa:', err);
-          Alert.alert("Error", "No se pudo abrir la aplicación de mapas.");
-      });
-  };
+    const abrirMapa = (lat, lon) => {
+        if (!lat || !lon) {
+            Alert.alert("Error", "Este cliente no tiene coordenadas GPS registradas.");
+            return;
+        }
+        const url = Platform.select({
+            ios: `maps:0,0?q=${lat},${lon}`,
+            android: `geo:0,0?q=${lat},${lon}`
+        });
+        Linking.openURL(url);
+    };
 
-  useFocusEffect(
-    useCallback(() => {
-      const loadLocales = async () => {
+    const toggleSeccion = (id, tipo) => {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        if (expandedId === id && tipoReporte === tipo) {
+            setExpandedId(null);
+            setMotivo("");
+            setTipoReporte("");
+        } else {
+            setExpandedId(id);
+            setTipoReporte(tipo);
+        }
+    };
+
+    const enviarMotivo = async (id_cliente) => {
+        if (!motivo.trim()) {
+            Alert.alert("Aviso", "Por favor escribe un motivo.");
+            return;
+        }
+        
+        setIsSending(true);
+        try {
+            // Enviamos el mensaje con el prefijo del tipo (NO VENTA o NO VISITADO)
+            const observacionData = {
+                id_cliente_status: id_cliente,
+                mensaje: `${tipoReporte}: ${motivo}`
+            };
+
+            const resultObs = await PostNuevaObservacion(observacionData);
+
+            if (resultObs && resultObs.success) {
+                try {
+                    await DeleteRuta(id_cliente); 
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.spring);
+                    Alert.alert("Éxito", "Reporte enviado y cliente removido.");
+                    
+                    setClientesRuta(prev => prev.filter(c => c.id_cliente !== id_cliente));
+                    setExpandedId(null);
+                    setMotivo("");
+                    setTipoReporte("");
+                } catch (errorDelete) {
+                    Alert.alert("Aviso", "Se guardó el motivo, pero hubo un error al actualizar la ruta.");
+                }
+            } else {
+                Alert.alert("Error", "No se pudo guardar la observación.");
+            }
+        } catch (error) {
+            Alert.alert("Error", "Error de conexión.");
+        } finally {
+            setIsSending(false);
+        }
+    };
+
+   const loadRuta = async () => {
         setIsLoading(true); 
         try {
-          const data = await fetchLocales();
-          setLocales(data);
+            const userDataString = await SecureStore.getItemAsync('userData');
+            const token = await SecureStore.getItemAsync('userToken');
+            console.log("userDataString:", userDataString);
+            if (!token || !userDataString) {
+                router.replace('/login');
+                return;
+            }
+
+            const userData = JSON.parse(userDataString);
+            setInfoUsuario(userData);
+
+            // Aquí se genera el error 401 si el token no sirve
+            const response = await fetchRutaVendedor(userData.id);
+            
+            if (response.ok) {
+                setClientesRuta(response.data);
+            } else {
+                setClientesRuta([]);
+            }
         } catch (error) {
-          console.error("Error al cargar locales:", error);
-          Alert.alert("Error de BD", "No se pudieron cargar los datos de los locales.");
+            console.log("Error detectado:", error.message);
+
+            // --- LÓGICA DE EXPULSIÓN POR ERROR 401 ---
+            if (error.response && error.response.status === 401) {
+                console.log("Token vencido o inválido. Redirigiendo...");
+                
+                // 1. Borramos los datos para que no intente entrar de nuevo solo
+                await SecureStore.deleteItemAsync('userToken');
+                await SecureStore.deleteItemAsync('userData');
+
+                // 2. Avisamos al usuario y mandamos al login
+                Alert.alert("Sesión Expirada", "Tu sesión ha terminado. Por favor, ingresa de nuevo.");
+                router.replace('/login');
+            } else {
+                // Si es otro error (como el 404 o red)
+                setClientesRuta([]);
+            }
         } finally {
-          setIsLoading(false);
+            setIsLoading(false);
         }
-      };
+    };
 
-      loadLocales();
-      
-    }, []) 
-  ); 
+    useFocusEffect(useCallback(() => { loadRuta(); }, [])); 
 
-  if (isLoading) {
+    if (isLoading) {
+        return (
+            <View style={styles.centerContainer}>
+                <ActivityIndicator size="large" color="#007AFF" />
+            </View>
+        );
+    }
+
+    const renderClienteItem = ({ item, index }) => {
+        const isExpanded = expandedId === item.id_cliente;
+
+        return (
+            <View style={[styles.itemContainer, isExpanded && styles.itemExpanded]}>
+                <TouchableOpacity onPress={() => abrirMapa(item.Lat, item.Lon)}>
+                    <View style={styles.headerCard}>
+                        <View style={[styles.indexCircle, isExpanded && {backgroundColor: '#FF3B30'}]}>
+                            <Text style={styles.indexText}>{index + 1}</Text>
+                        </View>
+                        <Text style={styles.localName} numberOfLines={1}>{item.nombre_cliente}</Text>
+                    </View>
+
+                    <View style={styles.infoRow}>
+                        <Text style={styles.label}>RIF:</Text>
+                        <Text style={styles.value}>{item.rif || 'J-00000000-0'}</Text>
+                    </View>
+
+                    {/* --- UBICACIÓN RESTAURADA --- */}
+                    <View style={styles.direccionContainer}>
+                        <Text style={styles.locationText} numberOfLines={2}>
+                            📍 {item.Ubicacion || 'Sin ubicación registrada'}
+                        </Text>
+                    </View>
+                </TouchableOpacity>
+
+                <View style={styles.buttonRow}>
+                    {!isExpanded ? ( 
+                        <>
+                            <TouchableOpacity style={styles.btnFactura} onPress={() => router.push(`/paginas/facturaCliente/${item.id_cliente}`)}>
+                                <Text style={styles.btnFacturaText}>🛒 VENTA</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={styles.btnPerfil} onPress={() => router.push(`/paginas/${item.id_cliente}`)}>
+                                <Text style={styles.btnPerfilText}>👤 PERFIL</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={styles.btnNoVenta} onPress={() => toggleSeccion(item.id_cliente, "NO VENTA")}>
+                                <Text style={styles.btnNoVentaText}>📉 NO VENTA</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={styles.btnNoVisitado} onPress={() => toggleSeccion(item.id_cliente, "NO VISITADO")}>
+                                <Text style={styles.btnNoVisitadoText}>🚫 NO VISITA</Text>
+                            </TouchableOpacity>
+                        </>
+                    ) : (
+                        <TouchableOpacity style={styles.btnCancel} onPress={() => toggleSeccion(item.id_cliente, "")}>
+                            <Text style={styles.btnCancelText}>VOLVER ATRÁS / CANCELAR</Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
+
+                {isExpanded && (
+                    <View style={styles.motivoContainer}>
+                        <Text style={styles.motivoLabel}>Motivo de {tipoReporte}:</Text>
+                        <TextInput
+                            style={styles.inputMotivo}
+                            placeholder="Escribe el motivo aquí..."
+                            value={motivo}
+                            onChangeText={setMotivo}
+                            multiline
+                            autoFocus={true}
+                        />
+                        <TouchableOpacity 
+                            style={[styles.btnEnviarMotivo, isSending && { opacity: 0.6 }]}
+                            onPress={() => enviarMotivo(item.id_cliente)}
+                            disabled={isSending}
+                        >
+                            <Text style={styles.btnEnviarText}>ENVIAR Y ELIMINAR DE RUTA</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+            </View>
+        );
+    };
+
     return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
-        <Text style={{ marginTop: 10 }}>Cargando locales...</Text>
-      </View>
+        <View style={styles.container}>
+            <View style={styles.topHeader}>
+                <Text style={styles.headerTitle}>Mi Ruta del Día</Text>
+                <Text style={styles.headerSubtitle}>Usuario: {infoUsuario ? infoUsuario.Nombre : 'Invitado'}</Text>
+                <Text style={styles.headerSubtitle}>{clientesRuta.length} Pendientes</Text>
+            </View>
+            <FlatList
+                data={clientesRuta}
+                keyExtractor={(item) => item.id_cliente.toString()}
+                renderItem={renderClienteItem}
+                contentContainerStyle={styles.listContent}
+            />
+        </View>
     );
-  }
-
-  const renderLocalItem = ({ item }) => (
-      <TouchableOpacity 
-          style={styles.itemContainer}
-          onPress={() => openMap(item.lat, item.lon, item.nombre_local)}
-      >
-          <Text style={styles.localName}>{item.nombre_local}</Text>
-          <Text style={styles.detailText}>C.I./R.I.F.: {item.ci_rif}</Text>
-          <Text style={styles.detailText}>Tipo: {item.tipo_local} {item.id}</Text>
-          <Text style={styles.locationText}>
-            Ubicación GPS: Lat: {item.lat.toFixed(4)}, Lon: {item.lon.toFixed(4)}
-          </Text>
-          
-      </TouchableOpacity>
-  );
-  return (
-    <View style={styles.container}>
-      <Text style={styles.header}>Lista de Locales Registrados ({locales.length})</Text>
-      <FlatList
-        data={locales}
-        keyExtractor={(item) => item.id.toString()}
-        renderItem={renderLocalItem}
-        ListEmptyComponent={() => (
-          <View style={styles.listEmpty}>
-            <Text style={styles.emptyText}>¡No hay locales registrados! Ve a "New Client" para empezar.</Text>
-          </View>
-        )}
-        contentContainerStyle={locales.length === 0 ? styles.listEmptyContainer : styles.listContent}
-      />
-      <StatusBar style="auto" />
-    </View>
-  );
 }
 
 const styles = StyleSheet.create({
-  centerContainer: {
-    flex: 1, 
-    justifyContent: 'center', 
-    alignItems: 'center',
-  },
-  container: {
-    flex: 1,
-    paddingTop: 50,
-    backgroundColor: '#f8f8f8',
-  },
-  header: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginVertical: 10,
-    color: '#333',
-  },
-  listContent: {
-    paddingHorizontal: 15,
-    paddingBottom: 20,
-  },
-  listEmptyContainer: {
-    flex: 1, // Para ocupar todo el espacio
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  listEmpty: {
-    // Si la lista está vacía, no queremos que ocupe todo el espacio.
-    // Usamos listEmptyContainer en contentContainerStyle para centrar el mensaje.
-  },
-  itemContainer: {
-    backgroundColor: '#ffffff',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 10,
-    borderLeftWidth: 5,
-    borderLeftColor: '#007AFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 1,
-    elevation: 2,
-  },
-  localName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#007AFF',
-    marginBottom: 5,
-  },
-  detailText: {
-    fontSize: 14,
-    color: '#555',
-  },
-  locationText: {
-    fontSize: 12,
-    color: '#888',
-    marginTop: 5,
-    fontStyle: 'italic',
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#888',
-    textAlign: 'center',
-    padding: 20,
-  }
+    centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    container: { flex: 1, backgroundColor: '#f4f6f8' },
+    topHeader: { paddingTop: 60, paddingBottom: 20, backgroundColor: '#fff', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#e0e0e0' },
+    headerTitle: { fontSize: 20, fontWeight: 'bold' },
+    headerSubtitle: { fontSize: 13, color: '#666' },
+    listContent: { paddingHorizontal: 12, paddingTop: 15 },
+    itemContainer: { backgroundColor: '#fff', padding: 12, borderRadius: 10, marginBottom: 15, elevation: 2, borderLeftWidth: 5, borderLeftColor: '#007AFF' },
+    itemExpanded: { borderLeftColor: '#FF3B30' },
+    headerCard: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+    indexCircle: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#007AFF', justifyContent: 'center', alignItems: 'center', marginRight: 8 },
+    indexText: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
+    localName: { fontSize: 16, fontWeight: 'bold', flex: 1 },
+    infoRow: { flexDirection: 'row' },
+    label: { fontSize: 12, color: '#888', width: 35 },
+    value: { fontSize: 12, color: '#444' },
+    buttonRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, gap: 5 },
+    btnFactura: { backgroundColor: '#eafaf1', paddingVertical: 8, borderRadius: 5, flex: 1, alignItems: 'center', borderWidth: 1, borderColor: '#2ECC71' },
+    btnFacturaText: { color: '#27AE60', fontWeight: 'bold', fontSize: 10 },
+    btnPerfil: { backgroundColor: '#f0f7ff', paddingVertical: 8, borderRadius: 5, flex: 1, alignItems: 'center', borderWidth: 1, borderColor: '#007AFF' },
+    btnPerfilText: { color: '#007AFF', fontWeight: 'bold', fontSize: 10 },
+    btnNoVenta: { backgroundColor: '#fff7e6', paddingVertical: 8, borderRadius: 5, flex: 1, alignItems: 'center', borderWidth: 1, borderColor: '#FF9500' },
+    btnNoVentaText: { color: '#FF9500', fontWeight: 'bold', fontSize: 10 },
+    btnNoVisitado: { backgroundColor: '#fff', paddingVertical: 8, borderRadius: 5, flex: 1.1, alignItems: 'center', borderWidth: 1, borderColor: '#FF3B30' },
+    btnNoVisitadoText: { color: '#FF3B30', fontWeight: 'bold', fontSize: 10 },
+    btnCancel: { backgroundColor: '#666', paddingVertical: 10, borderRadius: 5, flex: 1, alignItems: 'center' },
+    btnCancelText: { color: '#fff', fontWeight: 'bold', fontSize: 12 },
+    motivoContainer: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#eee' },
+    motivoLabel: { fontSize: 12, fontWeight: 'bold', marginBottom: 5 },
+    inputMotivo: { backgroundColor: '#f9f9f9', borderRadius: 5, padding: 8, height: 60, textAlignVertical: 'top', borderWidth: 1, borderColor: '#ddd' },
+    btnEnviarMotivo: { backgroundColor: '#FF3B30', marginTop: 10, paddingVertical: 12, borderRadius: 5, alignItems: 'center' },
+    btnEnviarText: { color: '#fff', fontWeight: 'bold' },
 });

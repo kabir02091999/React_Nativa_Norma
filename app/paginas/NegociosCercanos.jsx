@@ -1,203 +1,4 @@
-/*import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text, FlatList, TouchableOpacity, ActivityIndicator, Linking } from 'react-native';
-import * as Location from 'expo-location';
-import axios from 'axios';
-
-const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
-const RADIO_METERS = 750; // Buscamos en 750 metros (para evitar el error 504)
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 2000;
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-const TAGS_COMERCIALES = "supermarket|bakery|butcher|clothes|hardware|bookstore|chemist";
-const TAGS_SERVICIOS = "cafe|restaurant|bar|bank|pharmacy|post_office|hairdresser|atm|clinic";
-
-
-export default function ListaNegocios() {
-  const [location, setLocation] = useState(null);
-  const [negocios, setNegocios] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [errorMsg, setErrorMsg] = useState(null);
-
-  useEffect(() => {
-    obtenerUbicacionYNegocios();
-  }, []);
-
-  const buscarNegocios = async (lat, lon) => {
-    
-    const query = `
-      [out:json][timeout:25];
-      (
-        // Búsqueda de tiendas (shop)
-        node["shop"~"${TAGS_COMERCIALES}"](around:${RADIO_METERS},${lat},${lon});
-        way["shop"~"${TAGS_COMERCIALES}"](around:${RADIO_METERS},${lat},${lon});
-        relation["shop"~"${TAGS_COMERCIALES}"](around:${RADIO_METERS},${lat},${lon});
-        
-        // Búsqueda de servicios/lugares de interés (amenity)
-        node["amenity"~"${TAGS_SERVICIOS}"](around:${RADIO_METERS},${lat},${lon});
-        way["amenity"~"${TAGS_SERVICIOS}"](around:${RADIO_METERS},${lat},${lon});
-        relation["amenity"~"${TAGS_SERVICIOS}"](around:${RADIO_METERS},${lat},${lon});
-      );
-      out center; 
-    `;
-
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-        try {
-            console.log(`Intentando consulta Overpass (Intento ${attempt}/${MAX_RETRIES})...`);      
-            const response = await axios.post(OVERPASS_URL, query);
-            const listaNegocios = response.data.elements.map(element => ({
-                id: element.id,
-                name: element.tags.name || element.tags.operator || "Negocio sin nombre", 
-                type: element.tags.shop || element.tags.amenity || "Genérico",
-                latitude: element.lat || element.center.lat, 
-                longitude: element.lon || element.center.lon,
-                address: element.tags["addr:street"] || "Dirección no disponible",
-            }));
-            
-            return listaNegocios;
-
-        } catch (error) {
-            if (error.response && error.response.status === 504 && attempt < MAX_RETRIES) {
-                console.warn(`Error 504 detectado. Reintentando en ${RETRY_DELAY_MS / 1000}s...`);
-                await delay(RETRY_DELAY_MS);
-                continue;
-            }
-            console.error(`Error final al consultar Overpass API: ${error.message}`);
-            throw new Error(`Fallo la consulta de negocios después de ${attempt} intentos. Error: ${error.message}`);
-        }
-    }
-    return []; 
-  };
-
-
-  const obtenerUbicacionYNegocios = async () => {
-    let { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') {
-      setErrorMsg('Permiso de ubicación denegado. Es necesario para buscar negocios cercanos.');
-      setIsLoading(false);
-      return;
-    }
-
-    let currentLocation = await Location.getCurrentPositionAsync({});
-    const { latitude, longitude } = currentLocation.coords;
-    setLocation({ latitude, longitude });
-
-    try {
-        const negociosEncontrados = await buscarNegocios(latitude, longitude);
-        // Filtramos resultados sin coordenadas válidas por seguridad
-        const negociosValidos = negociosEncontrados.filter(n => n.latitude && n.longitude);
-        setNegocios(negociosValidos);
-    } catch (e) {
-        setErrorMsg(e.message); 
-    }
-
-    setIsLoading(false);
-  };
-
-
-  // --- 3. Lógica para Abrir Ubicación en Mapas Nativos ---
-  const abrirUbicacionEnMapa = (lat, lon, name) => {
-    // Usamos el esquema 'geo:' para la mejor compatibilidad en Android/iOS
-    const url = `geo:${lat},${lon}?q=${lat},${lon}(${name})`;
-    
-    Linking.openURL(url).catch(err => {
-        alert('No se pudo abrir la aplicación de mapas. Asegúrate de tener una instalada.');
-        console.error('Error al abrir URL:', err);
-    });
-  };
-
-  // --- 4. Renderizado (FlatList) ---
-  const renderItem = ({ item }) => (
-    <TouchableOpacity 
-      style={styles.negocioItem}
-      onPress={() => abrirUbicacionEnMapa(item.latitude, item.longitude, item.name)}
-    >
-      <Text style={styles.name}>{item.name}</Text>
-      <Text style={styles.address}>Tipo: **{item.type.toUpperCase()}**</Text>
-      <Text style={styles.distance}>Toca para ver en el mapa 🗺️</Text>
-    </TouchableOpacity>
-  );
-  if (isLoading) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#0000ff" />
-        <Text>Buscando ubicación y negocios cercanos...</Text>
-      </View>
-    );
-  }
-
-  if (errorMsg || !location) {
-    return <View style={styles.centered}><Text style={styles.errorText}>{errorMsg || 'No se pudo obtener la ubicación.'}</Text></View>;
-  }
-  
-  if (negocios.length === 0) {
-    return <View style={styles.centered}><Text>No se encontraron negocios en un radio de {RADIO_METERS/1000} km. 😔</Text></View>;
-  }
-
-  return (
-    <View style={styles.container}>
-      <Text style={styles.header}>Negocios Cerca de Ti (Encontrados: {negocios.length})</Text>
-      <FlatList
-        data={negocios}
-        keyExtractor={(item) => item.id.toString()}
-        renderItem={renderItem}
-      />
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingTop: 50,
-    backgroundColor: '#f5f5f5',
-  },
-  header: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 10,
-    color: '#333',
-  },
-  negocioItem: {
-    padding: 15,
-    marginVertical: 8,
-    marginHorizontal: 16,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    borderLeftWidth: 5,
-    borderLeftColor: '#007AFF', // Resalta el item
-    elevation: 2,
-  },
-  name: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
-  },
-  address: {
-    fontSize: 14,
-    color: '#555',
-    marginTop: 4,
-  },
-  distance: {
-    fontSize: 12,
-    color: 'green',
-    marginTop: 4,
-    fontStyle: 'italic',
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  errorText: {
-    color: 'red',
-    textAlign: 'center',
-  },
-}); */
-
-import React, { useState, useEffect } from 'react';
+/* import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -271,7 +72,7 @@ export default function NearbyPlacesCardSearch() {
 
   // --- Lógica de la API de Places ---
   useEffect(() => {
-    console.log("Ubicación obtenida: ", GOOGLE_MAPS_API_KEY + " - " + JSON.stringify(location));
+    //console.log("Ubicación obtenida: ", GOOGLE_MAPS_API_KEY + " - " + JSON.stringify(location));
     if (location && GOOGLE_MAPS_API_KEY) {
       fetchNearbyPlaces(location.coords.latitude, location.coords.longitude);
     } else if (location && !GOOGLE_MAPS_API_KEY) {
@@ -405,5 +206,728 @@ const styles = StyleSheet.create({
     color: '#007AFF', // Azul típico de enlace/acción
     marginTop: 5,
   }
+}); */
+
+
+
+//ojo aqui
+/* 
+import React, { useState } from 'react';
+import { 
+    View, 
+    Text, 
+    StyleSheet, 
+    ActivityIndicator, 
+    Alert, 
+    TextInput, 
+    TouchableOpacity,
+    Keyboard,
+    Dimensions, // Para obtener el ancho y alto de la pantalla
+    Linking 
+} from 'react-native';
+import MapView, { Marker } from 'react-native-maps'; // 👈 Importamos MapView y Marker
+
+const { width, height } = Dimensions.get('window'); // Obtener dimensiones
+const ASPECT_RATIO = width / height;
+const LATITUDE_DELTA = 0.0922; // Nivel de zoom inicial para la vista del mapa
+const LONGITUDE_DELTA = LATITUDE_DELTA * ASPECT_RATIO;
+
+const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_API_KEY_GOOGLE; 
+const SEARCH_RADIUS = 1000; // 1 km
+
+export default function BusinessMapCroquis() {
+    const [address, setAddress] = useState(''); 
+    const [keyword, setKeyword] = useState('tienda'); 
+    
+    const [mapRegion, setMapRegion] = useState(null); // 👈 Estado para la región del mapa
+    const [places, setPlaces] = useState([]); // 👈 Lugares encontrados para marcadores
+    const [loading, setLoading] = useState(false);
+    const [errorMsg, setErrorMsg] = useState(null);
+
+    // --- PASO 1: Convertir Dirección a Coordenadas (Geocoding API) ---
+    const getCoordinatesFromAddress = async (addressText) => {
+        const encodedAddress = encodeURIComponent(addressText);
+        const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedAddress}&key=${GOOGLE_MAPS_API_KEY}`;
+        
+        const response = await fetch(geocodeUrl);
+        const data = await response.json();
+        
+        if (data.status === 'OK' && data.results.length > 0) {
+            return data.results[0].geometry.location;
+        } else {
+            return null;
+        }
+    };
+    
+    // --- PASO 2: Buscar Negocios Cercanos (Nearby Search API) ---
+    const fetchNearbyPlaces = async (latitude, longitude) => {
+        const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${latitude},${longitude}&radius=${SEARCH_RADIUS}&keyword=${keyword}&key=${GOOGLE_MAPS_API_KEY}`;
+
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.status === 'OK') {
+            return data.results;
+        } else if (data.status === 'ZERO_RESULTS') {
+            return [];
+        } else {
+             throw new Error(`Error de Google Maps API: ${data.status}`);
+        }
+    };
+
+    // --- Función Principal: Ejecuta la búsqueda completa ---
+    const handleSearch = async () => {
+        if (!address.trim() || !keyword.trim()) {
+            Alert.alert("Faltan datos", "Por favor, introduce una zona y un tipo de negocio.");
+            return;
+        }
+        if (!GOOGLE_MAPS_API_KEY) {
+             setErrorMsg('Error de configuración: Clave API no disponible.');
+             return;
+        }
+        
+        Keyboard.dismiss(); 
+        setLoading(true);
+        setErrorMsg(null);
+        setPlaces([]); // Limpiar lugares anteriores
+        setMapRegion(null); // Limpiar región del mapa anterior
+
+        try {
+            // 1. Obtener coordenadas de la dirección
+            const locationCoords = await getCoordinatesFromAddress(address);
+            
+            if (!locationCoords) {
+                Alert.alert("Ubicación no encontrada", `No se pudieron obtener coordenadas válidas para: "${address}".`);
+                setLoading(false);
+                return;
+            }
+
+            // 2. Establecer la región inicial del mapa en la ubicación de la dirección
+            setMapRegion({
+                latitude: locationCoords.lat,
+                longitude: locationCoords.lng,
+                latitudeDelta: LATITUDE_DELTA,
+                longitudeDelta: LONGITUDE_DELTA,
+            });
+            
+            // 3. Buscar negocios cercanos
+            const results = await fetchNearbyPlaces(locationCoords.lat, locationCoords.lng);
+            setPlaces(results); // Guardar los lugares para los marcadores
+            
+            if (results.length === 0) {
+                 Alert.alert("Sin Resultados", `No se encontraron negocios tipo '${keyword}' cerca de "${address}" (radio ${SEARCH_RADIUS/1000} km).`);
+            }
+
+        } catch (error) {
+            console.error('Error durante la búsqueda:', error);
+            setErrorMsg(error.message || 'Error de conexión o API.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+
+    return (
+        <View style={styles.container}>
+            <Text style={styles.headerText}>🗺️ Croquis</Text>
+            
+            <View style={styles.inputGroup}>
+                 <Text style={styles.label}>Zona/Dirección (Ej: Caracas, Chacao)</Text>
+                 <TextInput
+                    style={styles.input}
+                    placeholder="Escribe una ciudad, zona o dirección"
+                    value={address}
+                    onChangeText={setAddress}
+                 />
+
+                 <Text style={styles.label}>Tipo de Negocio (Ej: panadería)</Text>
+                 <TextInput
+                    style={styles.input}
+                    placeholder="Palabra clave (tienda, farmacia, etc.)"
+                    value={keyword}
+                    onChangeText={setKeyword}
+                 />
+                 
+                 <TouchableOpacity 
+                    style={styles.searchButton}
+                    onPress={handleSearch}
+                    disabled={loading}
+                 >
+                    <Text style={styles.searchButtonText}>
+                        {loading ? "Buscando..." : `Ver Croquis (${SEARCH_RADIUS/1000} km)`}
+                    </Text>
+                 </TouchableOpacity>
+            </View>
+            
+            {loading && (
+                <View style={styles.loadingOverlay}>
+                    <ActivityIndicator size="large" color="#007AFF" />
+                    <Text style={styles.loadingText}>Obteniendo coordenadas y buscando negocios...</Text>
+                </View>
+            )}
+
+            {errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
+
+            {mapRegion ? (
+                <MapView
+                    style={styles.map}
+                    region={mapRegion}
+                    showsUserLocation={true} // Mostrar la ubicación actual del usuario (si hay permiso)
+                    onRegionChangeComplete={setMapRegion} // Opcional: actualizar la región si el usuario se mueve
+                >
+                    
+                    <Marker
+                        coordinate={{ 
+                            latitude: mapRegion.latitude, 
+                            longitude: mapRegion.longitude 
+                        }}
+                        title={address}
+                        description={`Zona buscada: ${keyword}`}
+                        pinColor="blue" // Color diferente para la zona
+                    />
+
+                    
+                    {places.map(place => (
+                        <Marker
+                            key={place.place_id}
+                            coordinate={{
+                                latitude: place.geometry.location.lat,
+                                longitude: place.geometry.location.lng,
+                            }}
+                            title={place.name}
+                            description={place.vicinity}
+                            onCalloutPress={() => Linking.openURL(`https://www.google.com/maps/search/?api=1&query_place_id=$3${place.geometry.location.lat},${place.geometry.location.lng}`)}
+                        />
+                    ))}
+                </MapView>
+            ) : (
+                <View style={styles.placeholderMap}>
+                    <Text style={styles.placeholderText}>Escribe una zona y un tipo de negocio para ver el croquis.</Text>
+                </View>
+            )}
+        </View>
+    );
+}
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        paddingTop: 50,
+        backgroundColor: '#f5f5f5',
+    },
+    loadingOverlay: {
+         position: 'absolute',
+         top: 0,
+         left: 0,
+         right: 0,
+         bottom: 0,
+         backgroundColor: 'rgba(255,255,255,0.8)',
+         justifyContent: 'center',
+         alignItems: 'center',
+         zIndex: 10,
+    },
+    loadingText: {
+        marginTop: 10,
+        color: '#666',
+    },
+    headerText: {
+        fontSize: 22,
+        fontWeight: 'bold',
+        textAlign: 'center',
+        marginBottom: 10,
+        color: '#333',
+    },
+    inputGroup: {
+        paddingHorizontal: 20,
+        marginBottom: 15,
+        borderBottomWidth: 1,
+        borderBottomColor: '#ddd',
+        paddingBottom: 15,
+    },
+    label: {
+        fontSize: 14,
+        fontWeight: '600',
+        marginTop: 10,
+        color: '#555',
+    },
+    input: {
+        height: 45,
+        borderColor: '#ccc',
+        borderWidth: 1,
+        borderRadius: 8,
+        paddingHorizontal: 10,
+        marginBottom: 5,
+        backgroundColor: '#fff',
+    },
+    searchButton: {
+        backgroundColor: '#007AFF',
+        padding: 15,
+        borderRadius: 8,
+        marginTop: 10,
+        alignItems: 'center',
+    },
+    searchButtonText: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: 'bold',
+    },
+    errorText: {
+        color: 'red',
+        fontSize: 14,
+        textAlign: 'center',
+        paddingHorizontal: 20,
+        marginBottom: 10,
+    },
+    map: { // Estilo fundamental para el mapa
+        flex: 1, // Esto hace que el mapa ocupe el espacio restante
+        marginHorizontal: 10,
+        marginBottom: 10,
+        borderRadius: 8,
+        overflow: 'hidden', // Asegura que el borde redondeado se vea bien
+    },
+    placeholderMap: { // Estilo para cuando no hay mapa
+        flex: 1,
+        marginHorizontal: 10,
+        marginBottom: 10,
+        borderRadius: 8,
+        backgroundColor: '#e0e0e0',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    placeholderText: {
+        fontSize: 16,
+        color: '#777',
+        textAlign: 'center',
+        padding: 20,
+    }
+}); */
+
+import React, { useState } from 'react';
+import { 
+    View, 
+    Text, 
+    StyleSheet, 
+    ActivityIndicator, 
+    Alert, 
+    TextInput, 
+    TouchableOpacity,
+    Keyboard,
+    Linking,
+    FlatList // Usamos FlatList para la lista de tarjetas
+} from 'react-native';
+
+
+const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_API_KEY_GOOGLE; 
+const SEARCH_RADIUS = 1000; // 1 km (radio de búsqueda)
+
+const fetchPlaceDetails = async (placeId) => {
+    // Definimos los campos que queremos, incluyendo el número de teléfono
+    const fields = 'name,vicinity,rating,user_ratings_total,geometry,formatted_address,formatted_phone_number,website,opening_hours';
+    
+    const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=${fields}&key=${GOOGLE_MAPS_API_KEY}`;
+
+    try {
+        const response = await fetch(detailsUrl);
+        const data = await response.json();
+
+        if (data.status === 'OK' && data.result) {
+            return data.result;
+        } else {
+            // Si falla la búsqueda de detalles, retornamos null
+            return null; 
+        }
+    } catch (error) {
+        return null;
+    }
+};
+
+
+const BusinessCard = ({ place }) => {
+    
+    // Desestructuramos todos los campos necesarios, incluyendo los de la llamada de detalles
+    const { 
+        name, 
+        vicinity, 
+        formatted_address,
+        formatted_phone_number, 
+        website, 
+        rating, 
+        user_ratings_total, 
+        geometry 
+    } = place;
+
+    const openMapForPlace = () => {
+       if (!geometry || !geometry.location) {
+             Alert.alert("Error", "Coordenadas no disponibles para este negocio.");
+             return;
+        }
+        
+        const { lat, lng } = geometry.location;
+        
+        // ✅ CORRECCIÓN: Usar el formato estándar para coordenadas de Google Maps
+        const url = `http://maps.google.com/maps?q=${lat},${lng}`;
+        
+        Linking.openURL(url).catch(err => {
+            Alert.alert("Error", "No se pudo abrir Google Maps. Asegúrate de tener la aplicación o un navegador.");
+            console.error('Error al abrir Maps:', err);
+        });
+    };
+
+    return (
+        <View style={cardStyles.container}>
+            <Text style={cardStyles.title}>{name}</Text>
+            
+            <View style={cardStyles.row}>
+                <Text style={cardStyles.label}>Dirección:</Text>
+                <Text style={cardStyles.value}>{formatted_address || vicinity || 'No disponible'}</Text>
+            </View>
+            
+            {/* Teléfono */}
+            {formatted_phone_number && (
+                <View style={cardStyles.row}>
+                    <Text style={cardStyles.label}>Teléfono:</Text>
+                    <TouchableOpacity onPress={() => Linking.openURL(`tel:${formatted_phone_number}`)}>
+                        <Text style={cardStyles.phoneValue}>
+                            {formatted_phone_number}
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+            )}
+
+            {/* Sitio Web */}
+            {website && (
+                <View style={cardStyles.row}>
+                    <Text style={cardStyles.label}>Sitio Web:</Text>
+                    <TouchableOpacity onPress={() => Linking.openURL(website)}>
+                        <Text style={cardStyles.linkValue}>
+                            {website.length > 30 ? 'Ver sitio web' : website}
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+            )}
+
+            {/* Calificación */}
+            {(rating || user_ratings_total) && (
+                <View style={cardStyles.row}>
+                    <Text style={cardStyles.label}>Calificación:</Text>
+                    <Text style={cardStyles.value}>
+                        {rating ? `⭐ ${rating}` : 'Sin calificar'} 
+                        {user_ratings_total ? ` (${user_ratings_total} reseñas)` : ''}
+                    </Text>
+                </View>
+            )}
+            
+            {/* Botón de Google Maps */}
+            <TouchableOpacity style={cardStyles.mapButton} onPress={openMapForPlace}>
+                <Text style={cardStyles.mapButtonText}>📍 Ir a Ubicación en Google Maps</Text>
+            </TouchableOpacity>
+
+        </View>
+    );
+};
+
+// ----------------------------------------------------------------
+// Componente Principal: CardListBusinessSearch
+// ----------------------------------------------------------------
+export default function CardListBusinessSearch() {
+    const [address, setAddress] = useState(''); 
+    const [keyword, setKeyword] = useState(''); 
+    
+    const [businesses, setBusinesses] = useState([]); // Lista final de negocios con detalles
+    const [loading, setLoading] = useState(false);
+    const [errorMsg, setErrorMsg] = useState(null);
+
+    // --- FUNCIÓN DE API: Convertir Dirección a Coordenadas (Geocoding API) ---
+    const getCoordinatesFromAddress = async (addressText) => {
+        const encodedAddress = encodeURIComponent(addressText);
+        const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedAddress}&key=${GOOGLE_MAPS_API_KEY}`;
+        
+        const response = await fetch(geocodeUrl);
+        const data = await response.json();
+        
+        if (data.status === 'OK' && data.results.length > 0) {
+            return data.results[0].geometry.location;
+        } else {
+            return null;
+        }
+    };
+    
+    // --- FUNCIÓN DE API: Buscar Negocios Cercanos (Nearby Search API) ---
+    const fetchNearbyPlaces = async (latitude, longitude) => {
+        const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${latitude},${longitude}&radius=${SEARCH_RADIUS}&keyword=${keyword}&key=${GOOGLE_MAPS_API_KEY}`;
+
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.status === 'OK') {
+            return data.results;
+        } else if (data.status === 'ZERO_RESULTS') {
+            return [];
+        } else {
+             throw new Error(`Error de Google Maps API: ${data.status}`);
+        }
+    };
+
+    // --- MANEJADOR: Búsqueda principal y obtención de detalles masiva ---
+    const handleSearch = async () => {
+        if (!address.trim() || !keyword.trim()) {
+            Alert.alert("Faltan datos", "Por favor, introduce una zona y un tipo de negocio.");
+            return;
+        }
+        if (!GOOGLE_MAPS_API_KEY) {
+             setErrorMsg('Error de configuración: Clave API no disponible.');
+             return;
+        }
+        
+        Keyboard.dismiss(); 
+        setLoading(true);
+        setErrorMsg(null);
+        setBusinesses([]); 
+
+        try {
+            // 1. Obtener coordenadas
+            const locationCoords = await getCoordinatesFromAddress(address);
+            
+            if (!locationCoords) {
+                Alert.alert("Ubicación no encontrada", `No se pudieron obtener coordenadas válidas para: "${address}".`);
+                return;
+            }
+
+            // 2. Buscar lugares cercanos
+            const nearbyResults = await fetchNearbyPlaces(locationCoords.lat, locationCoords.lng);
+            
+            if (nearbyResults.length === 0) {
+                 Alert.alert("Sin Resultados", `No se encontraron negocios tipo '${keyword}' cerca de "${address}" (radio ${SEARCH_RADIUS/1000} km).`);
+                 return;
+            }
+
+            // 3. Obtener detalles completos para CADA negocio (incluido el teléfono)
+            const detailPromises = nearbyResults.map(place => fetchPlaceDetails(place.place_id));
+            const detailedResults = await Promise.all(detailPromises);
+            
+            // 4. Filtrar resultados y actualizar la lista
+            const finalBusinesses = detailedResults.filter(detail => detail !== null);
+
+            if (finalBusinesses.length === 0) {
+                 Alert.alert("Detalles no disponibles", `Se encontraron lugares, pero no se pudo obtener información detallada (como el teléfono) para ninguno.`);
+            }
+
+            setBusinesses(finalBusinesses);
+
+        } catch (error) {
+            console.error('Error durante la búsqueda:', error);
+            setErrorMsg(error.message || 'Error de conexión o API.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+
+    return (
+        <View style={styles.container}>
+            <Text style={styles.headerText}>🔎 Buscador de Locales (Modo Tarjetas)</Text>
+            
+            {/* --- SECCIÓN DE ENTRADA DE DATOS --- */}
+            <View style={styles.inputGroup}>
+                 <Text style={styles.label}>Zona/Dirección (Ej: Caracas, Chacao)</Text>
+                 <TextInput
+                    style={styles.input}
+                    placeholder="Escribe una ciudad, zona o dirección"
+                    value={address}
+                    onChangeText={setAddress}
+                 />
+
+                 <Text style={styles.label}>Tipo de Local (Ej: panadería, farmacia)</Text>
+                 <TextInput
+                    style={styles.input}
+                    placeholder="Palabra clave"
+                    value={keyword}
+                    onChangeText={setKeyword}
+                 />
+                 
+                 <TouchableOpacity 
+                    style={styles.searchButton}
+                    onPress={handleSearch}
+                    disabled={loading}
+                 >
+                    <Text style={styles.searchButtonText}>
+                        {loading ? "Buscando detalles..." : `Buscar Locales`}
+                    </Text>
+                 </TouchableOpacity>
+            </View>
+            
+            {errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
+            
+            {/* --- LISTA DE TARJETAS --- */}
+            {loading && (
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color="#007AFF" />
+                    <Text style={styles.loadingText}>Buscando y obteniendo detalles de todos los locales...</Text>
+                </View>
+            )}
+
+            {!loading && businesses.length > 0 && (
+                 <Text style={styles.resultsHeader}>Locales encontrados ({businesses.length}):</Text>
+            )}
+
+            <FlatList
+                data={businesses}
+                keyExtractor={(item) => item.place_id}
+                renderItem={({ item }) => <BusinessCard place={item} />}
+                contentContainerStyle={styles.listContainer}
+                ListEmptyComponent={() => (
+                    !loading && businesses.length === 0 && (
+                        <Text style={styles.placeholderText}>No hay resultados para mostrar. Inicia una búsqueda.</Text>
+                    )
+                )}
+            />
+        </View>
+    );
+}
+
+
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        paddingTop: 50,
+        backgroundColor: '#f5f5f5',
+    },
+    loadingContainer: {
+        alignItems: 'center',
+        padding: 20,
+    },
+    loadingText: {
+        marginTop: 10,
+        color: '#666',
+    },
+    headerText: {
+        fontSize: 22,
+        fontWeight: 'bold',
+        textAlign: 'center',
+        marginBottom: 10,
+        color: '#333',
+    },
+    inputGroup: {
+        paddingHorizontal: 20,
+        marginBottom: 15,
+        borderBottomWidth: 1,
+        borderBottomColor: '#ddd',
+        paddingBottom: 15,
+    },
+    label: {
+        fontSize: 14,
+        fontWeight: '600',
+        marginTop: 10,
+        color: '#555',
+    },
+    input: {
+        height: 45,
+        borderColor: '#ccc',
+        borderWidth: 1,
+        borderRadius: 8,
+        paddingHorizontal: 10,
+        marginBottom: 5,
+        backgroundColor: '#fff',
+    },
+    searchButton: {
+        backgroundColor: '#4CD964', 
+        padding: 15,
+        borderRadius: 8,
+        marginTop: 10,
+        alignItems: 'center',
+    },
+    searchButtonText: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: 'bold',
+    },
+    errorText: {
+        color: 'red',
+        fontSize: 14,
+        textAlign: 'center',
+        paddingHorizontal: 20,
+        marginBottom: 10,
+    },
+    resultsHeader: {
+        fontSize: 18,
+        fontWeight: '600',
+        marginBottom: 10,
+        paddingHorizontal: 20,
+    },
+    listContainer: {
+        paddingHorizontal: 10,
+        paddingBottom: 40,
+    },
+    placeholderText: {
+        fontSize: 16,
+        color: '#777',
+        textAlign: 'center',
+        padding: 20,
+    },
 });
 
+const cardStyles = StyleSheet.create({
+    container: {
+        backgroundColor: '#fff',
+        padding: 15,
+        borderRadius: 10,
+        marginHorizontal: 10,
+        marginBottom: 15,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 3,
+        elevation: 3,
+    },
+    title: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        marginBottom: 10,
+        color: '#333',
+    },
+    row: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        paddingVertical: 5,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f0f0f0',
+    },
+    label: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#555',
+    },
+    value: {
+        fontSize: 14,
+        color: '#333',
+        maxWidth: '65%',
+        textAlign: 'right',
+    },
+    phoneValue: {
+        fontSize: 14,
+        color: '#007AFF', 
+        textDecorationLine: 'underline',
+        maxWidth: '65%',
+        textAlign: 'right',
+    },
+    linkValue: {
+        fontSize: 14,
+        color: '#007AFF',
+        textDecorationLine: 'underline',
+        maxWidth: '65%',
+        textAlign: 'right',
+    },
+    mapButton: {
+        backgroundColor: '#4285F4',
+        padding: 10,
+        borderRadius: 6,
+        alignItems: 'center',
+        marginTop: 15,
+    },
+    mapButtonText: {
+        color: 'white',
+        fontSize: 15,
+        fontWeight: 'bold',
+    },
+});

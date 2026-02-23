@@ -1,190 +1,197 @@
-/* import { View , Text} from 'react-native';
-
-import NewCliente from './paginas/NewCliente';
-
-
-import { Drawer } from 'expo-router/drawer';
-
-export default function Layout() {
-  return (
-    <Drawer>
-      <Drawer.Screen
-        name="index" 
-        options={{
-          drawerLabel: 'Home',
-          title: 'homa',
-        }}
-        
-      />
-      <Drawer.Screen
-        name="paginas/NewCliente" 
-        options={{
-          drawerLabel: 'new client',
-          title: 'New Cliente',
-        }}
-      />
-      <Drawer.Screen
-        name="index2" 
-        options={{
-          drawerLabel: 'index2',
-          title: 'Index2',
-        }}
-      />
-      <Drawer.Screen
-        name="paginas/crub" 
-        options={{
-          drawerLabel: 'crub',
-          title: 'Crub',
-        }}
-      />
-
-    </Drawer>
-  );
-} */
-
+import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect, useState } from 'react';
-import { View, Text, ActivityIndicator, Alert, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Image, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { Drawer } from 'expo-router/drawer';
+import { DrawerContentScrollView, DrawerItemList } from '@react-navigation/drawer';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import * as SecureStore from 'expo-secure-store';
 
-// 1. Importar la función de inicialización de la BD
-import { initDatabase } from '../utils/db.js'; // Asegúrate que esta ruta sea correcta: .. fuera de app/ y luego utils/db.js
+SplashScreen.preventAutoHideAsync();
 
-export default function Layout() {
-  const [isDbReady, setIsDbReady] = useState(false);
-  const [errorDb, setErrorDb] = useState(null);
+import { useIsFocused } from '@react-navigation/native';
 
-  // 2. Inicialización de la BD al montar el componente
+function CustomDrawerContent(props) {
+  const router = useRouter();
+  const [nombreUsuario, setNombreUsuario] = useState('Cargando...');
+  // Este estado detecta si el ID del usuario cambió para forzar el redibujado
+  const [currentId, setCurrentId] = useState(null); 
+  const isFocused = useIsFocused();
+
   useEffect(() => {
-    // La inicialización se corre UNA SOLA VEZ al inicio.
-    initDatabase()
-      .then(() => {
-        setIsDbReady(true);
-        console.log("Base de datos inicializada con éxito.");
-      })
-      .catch((error) => {
-        console.error("Error al inicializar la BD:", error);
-        setErrorDb(error.message || "Error desconocido al preparar la base de datos.");
-      });
+    let isMounted = true;
+    console.log("Drawer se enfocó, revisando token...");
+    const getUserData = async () => {
+      try {
+        const data = await SecureStore.getItemAsync('userData');
+        console.log("Datos obtenidos AAAAAAAAAAAAAAA en menú:", data);
+        if (data && isMounted) {
+          const user = JSON.parse(data);
+          const nombreCompleto = `${user.Nombre || ''} ${user.Apellido || ''}`.trim();
+          
+          // Si el ID en el teléfono es distinto al que muestra el menú, actualizamos
+          if (user.id !== currentId) {
+            setNombreUsuario(nombreCompleto || 'Usuario');
+            setCurrentId(user.id); // Guardamos el nuevo ID para que no vuelva a cargar
+            console.log("Menú actualizado con éxito:", nombreCompleto);
+          }
+        } else if (!data && isMounted) {
+          console.log("  No hay datos de usuario en SecureStore", data);
+          setNombreUsuario('Invitado');
+          setCurrentId(null);
+        }
+      } catch (e) {
+        console.error("Error al leer datos:", e);
+        if (isMounted) setNombreUsuario('Error');
+      }
+    };
+
+    if (isFocused) {
+      getUserData();
+    }
+
+    return () => { isMounted = false; };
+  }, [isFocused, currentId]); // Escucha si el menú se abre o si el ID cambia
+
+  const handleLogout = async () => {
+    await SecureStore.deleteItemAsync('userToken');
+    await SecureStore.deleteItemAsync('userData');
+    setCurrentId(null); // Reseteamos el ID al salir
+    router.replace('/login');
+  };
+
+  return (
+    <DrawerContentScrollView {...props} contentContainerStyle={{ paddingTop: 50 }}>
+      <View style={drawerStyles.headerContainer}>
+        <View style={drawerStyles.avatarCircle}>
+          <Image source={require('../assets/Logo.png')} style={drawerStyles.logoImage} />
+        </View>
+        {/* NOMBRE GRANDE Y BLANCO */}
+        <Text style={drawerStyles.userName}>{nombreUsuario}</Text>
+        {/* ECOINN EN PEQUEÑO ABAJO */}
+        <Text style={drawerStyles.userSub}>Ecoinn Global</Text>
+      </View>
+
+      <View style={{ flex: 1, paddingTop: 10 }}>
+        <DrawerItemList {...props} />
+      </View>
+
+      <TouchableOpacity style={drawerStyles.logoutButton} onPress={handleLogout}>
+        <Ionicons name="log-out-outline" size={22} color="#E74C3C" />
+        <Text style={drawerStyles.logoutText}>Cerrar Sesión</Text>
+      </TouchableOpacity>
+    </DrawerContentScrollView>
+  );
+}
+
+// --- COMPONENTE PRINCIPAL ---
+export default function Layout() {
+  const [appIsReady, setAppIsReady] = useState(false);
+  const [hasToken, setHasToken] = useState(false);
+  const router = useRouter();
+
+  // 1. EFECTO DE CARGA INICIAL (Solo corre una vez)
+  useEffect(() => {
+    async function prepare() {
+      try {
+        console.log("Iniciando carga de recursos...");
+        const token = await SecureStore.getItemAsync('userToken');
+        setHasToken(!!token);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } catch (e) {
+        console.warn(e);
+      } finally {
+        setAppIsReady(true);
+        // AGREGA ESTA LÍNEA PARA QUITAR LA PANTALLA BLANCA
+        await SplashScreen.hideAsync();
+      }
+    }
+    prepare();
   }, []);
 
-  // 3. Manejo de estados y errores
+  // 2. EFECTO DE REDIRECCIÓN (Solo corre cuando appIsReady cambia)
+  useEffect(() => {
+    if (appIsReady && !hasToken) {
+      console.log("No hay token, redirigiendo a login...");
+      router.replace('/login');
+    }
+  }, [appIsReady, hasToken]);
 
-  // Si hay un error crítico en la BD
-  if (errorDb) {
+  if (!appIsReady) {
     return (
-      <View style={styles.centerContainer}>
-        <Text style={styles.errorTitle}>🚨 Error Crítico de Inicialización 🚨</Text>
-        <Text style={styles.errorText}>No se pudo iniciar la aplicación debido a un problema con la base de datos.</Text>
-        <Text style={styles.errorDetail}>Detalle: {errorDb}</Text>
+      <View style={loadingStyles.container}>
+        <Image source={require('../assets/Logo.png')} style={loadingStyles.logo} />
+        <ActivityIndicator size="large" color="#ffffff" />
+        <Text style={{ color: '#fff', marginTop: 15 }}>Iniciando Ecoinn...</Text>
       </View>
     );
   }
-
-  // Si la BD se está inicializando
-  if (!isDbReady) {
-    return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
-        <Text style={styles.loadingText}>Cargando datos de la aplicación...</Text>
-      </View>
-    );
-  }
-
-  // 4. Renderizar el Drawer una vez que la BD esté lista
   return (
-    <Drawer>
+    <Drawer
+      drawerContent={(props) => <CustomDrawerContent {...props} />}
+      screenOptions={{
+        headerStyle: { backgroundColor: '#1B4F72' },
+        headerTintColor: '#fff',
+        headerTitleStyle: { fontWeight: 'bold' },
+        drawerActiveBackgroundColor: '#E3F2FD',
+        drawerActiveTintColor: '#1B4F72',
+      }}
+    >
+      <Drawer.Screen name="index" options={{ drawerLabel: 'Inicio', title: 'Panel Principal', drawerIcon: ({ color }) => <Ionicons name="home-outline" size={22} color={color} /> }} />
+      <Drawer.Screen name="login" options={{ drawerItemStyle: { display: 'none' }, headerShown: false }} />
+      <Drawer.Screen name="paginas/NewCliente" options={{ drawerLabel: 'Nuevo Cliente', title: 'Registrar', drawerIcon: ({ color }) => <Ionicons name="person-add-outline" size={22} color={color} /> }} />
+      <Drawer.Screen name="paginas/Buscar_Local" options={{ drawerLabel: 'Buscar Zona', title: 'Buscador', drawerIcon: ({ color }) => <Ionicons name="search-outline" size={22} color={color} /> }} />
       <Drawer.Screen
-        name="index"
-        options={{
-          drawerLabel: 'Home',
-          title: 'Home',
-        }}
-      />
-      <Drawer.Screen
-        name="paginas/NewCliente"
-        options={{
-          drawerLabel: 'new client',
-          title: 'New Cliente',
-        }}
-      />
-      <Drawer.Screen
-        name="paginas/Buscar_Local"
-        options={{
-          drawerLabel: 'buscar local',
-          title: 'Buscar Local',
-        }}
-      />
-      <Drawer.Screen
-        name="index2"
-        options={{
-          drawerLabel: 'Buscar Negocios google maps',
-          title: 'Buscar Negocios',
-        }}
-      />
-      {/* <Drawer.Screen
-        name="paginas/[ID]" 
-        options={{
-          drawerLabel: 'Local',
-          title: 'Local',
-        }}
-      /> */}
-
-      <Drawer.Screen
-        name="paginas/[ID]"
-        options={{
-          title: 'Detalle del Local', // Título que se ve en la cabecera
-
-          // 🚨 CLAVE: OCULTA LA PANTALLA DEL MENÚ DEL DRAWER
-          drawerItemStyle: {
-            height: 0,
-            overflow: 'hidden'
-          },
-          // También puedes usar: drawerItemStyle: { display: 'none' }
-        }}
+        name="api/api"
+        options={{ drawerItemStyle: { display: 'none' } }}
       />
       <Drawer.Screen
         name="paginas/NegociosCercanos"
-        options={{
-          drawerLabel: 'Oculto', // oculatar cosas que no se va a ver, no se verá.
-          title: 'Búsqueda de Negocios google maps',
-
-          // OCULTAr EL ÍTEM DE LA LISTA
-          drawerItemStyle: {
-            height: 0,
-            overflow: 'hidden'
-          },
-        }}
+        options={{ drawerItemStyle: { display: 'none' } }}
       />
+      <Drawer.Screen
+        name="paginas/[ID]"
+        options={{title: 'Negocios' , drawerItemStyle: { display: 'none',  } }}
+      />
+      <Drawer.Screen
+        name="paginas/facturaCliente/[IDLocal]"
+        options={{ drawerLabel: 'Factura Cliente', title: 'Factura Cliente', drawerItemStyle: { display: 'none' } }}
+      />
+      {/* Ocultas */}
+      <Drawer.Screen name="paginas/NewProductoAgregar" options={{ drawerItemStyle: { display: 'none' } }} />
+      <Drawer.Screen name="index2" options={{ drawerItemStyle: { display: 'none' } }} />
     </Drawer>
   );
 }
 
-const styles = StyleSheet.create({
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f5f5f5'
-  },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: '#666'
-  },
-  errorTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: 'red',
-    marginBottom: 8
-  },
-  errorText: {
-    textAlign: 'center',
-    paddingHorizontal: 20,
-    color: '#333'
-  },
-  errorDetail: {
-    marginTop: 10,
-    fontSize: 14,
-    color: '#888'
-  }
+const drawerStyles = StyleSheet.create({
+  headerContainer: { 
+    backgroundColor: '#1B4F72', 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    // Movimiento vertical
+    marginTop: -60, 
+    paddingTop: 60,
+    height: 250,
+    
+    // --- ESTO ARREGLA LOS LATERALES ---
+    width: '110%',        // Ocupa todo el ancho disponible
+    alignSelf: 'stretch', // Se estira para ignorar paddings del padre
+    marginHorizontal: -20,   // ajusta este valor si quieres más ancho
+    paddingHorizontal: 100, 
+    /* ojo son valores muy importanter */
+},
+  avatarCircle: { width: 110, height: 110, borderRadius: 55, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', marginBottom: 12, overflow: 'hidden' },
+  logoImage: { width: '250%', height: '350%', resizeMode: 'contain' },
+  userName: { color: '#fff', fontSize: 19, fontWeight: 'bold' },
+  userSub: { color: 'rgba(255,255,255,0.7)', fontSize: 13 },
+  logoutButton: { flexDirection: 'row', alignItems: 'center', padding: 20, borderTopWidth: 1, borderTopColor: '#f4f4f4' },
+  logoutText: { marginLeft: 15, color: '#E74C3C', fontWeight: 'bold' },
+  footer: { padding: 20, alignItems: 'center' },
+  footerText: { color: '#999', fontSize: 12 }
+});
+
+const loadingStyles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#1B4F72', justifyContent: 'center', alignItems: 'center' },
+  logo: { width: 200, height: 200, marginBottom: 20, resizeMode: 'contain' },
 });
