@@ -513,7 +513,7 @@ import {
     TouchableOpacity,
     Keyboard,
     Linking,
-    FlatList // Usamos FlatList para la lista de tarjetas
+    FlatList 
 } from 'react-native';
 
 

@@ -18,11 +18,11 @@ import { searchLocales, postGenerarRuta } from '../api/api';
 
 function BuscarLocal() {
     const router = useRouter(); 
-
+    
     const [searchText, setSearchText] = useState('');
     const [searchResults, setSearchResults] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
-    const [isGenerating, setIsGenerating] = useState(false); // Estado para el botón de ruta
+    const [isGenerating, setIsGenerating] = useState(false);
 
     const navigateToDetail = (ID) => {
         console.log("Navegando al detalle del local con ID:", ID);
